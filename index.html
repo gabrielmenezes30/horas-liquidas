@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estudo Líquido — cronômetro de foco</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #12151c;
+    --surface: #1c212c;
+    --surface-2: #232937;
+    --line: #2c3242;
+    --text: #eef0f4;
+    --text-muted: #8b91a1;
+    --accent: #d9a94e;
+    --accent-soft: rgba(217,169,78,0.16);
+    --accent-dim: rgba(217,169,78,0.55);
+    --teal: #5fae9d;
+    --danger: #c1594f;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(217,169,78,0.08), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding: 48px 20px 80px;
+  }
+  .app{
+    width:100%;
+    max-width: 620px;
+  }
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 6px;
+  }
+  h1{
+    font-family:'Source Serif 4', serif;
+    font-weight: 600;
+    font-size: 32px;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .sub{
+    color: var(--text-muted);
+    font-size: 14.5px;
+    margin: 0 0 32px;
+  }
+
+  /* ---- Timer card ---- */
+  .timer-card{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 40px 32px 32px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .status-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 5px 12px;
+    border-radius: 100px;
+    margin-bottom: 26px;
+  }
+  .status-dot{
+    width:7px; height:7px; border-radius:50%;
+    background: var(--text-muted);
+    transition: background .2s ease;
+  }
+  .status-pill.running .status-dot{ background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+  .status-pill.paused .status-dot{ background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+  .clock{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight: 500;
+    font-size: 76px;
+    letter-spacing: 0.02em;
+    line-height: 1;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .clock .sec{ color: var(--text-muted); font-size: 0.6em; }
+
+  /* signature: glowing wick bar under the clock, grows while running */
+  .wick{
+    width: 220px;
+    height: 2px;
+    margin: 22px auto 30px;
+    background: var(--line);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+  }
+  .wick::after{
+    content:"";
+    position:absolute;
+    left:0; top:0; bottom:0;
+    width: 0%;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    border-radius: 2px;
+    transition: width .3s ease;
+  }
+  .wick.running::after{
+    width: 100%;
+    animation: flicker 2.2s ease-in-out infinite;
+  }
+  @keyframes flicker{
+    0%,100%{ opacity: .55; }
+    50%{ opacity: 1; }
+  }
+
+  .controls{
+    display:flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  button{
+    font-family: 'Inter', sans-serif;
+    font-size: 14.5px;
+    font-weight: 600;
+    border-radius: 10px;
+    padding: 12px 22px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform .08s ease, opacity .15s ease, background .15s ease;
+  }
+  button:active{ transform: scale(0.97); }
+  .btn-primary{ background: var(--accent); color: #1b1508; }
+  .btn-primary:hover{ opacity: .92; }
+  .btn-ghost{ background: var(--surface-2); color: var(--text); border-color: var(--line); }
+  .btn-ghost:hover{ background: #29303f; }
+  .btn-stop{ background: transparent; color: var(--danger); border-color: rgba(193,89,79,0.4); }
+  .btn-stop:hover{ background: rgba(193,89,79,0.1); }
+  button:disabled{ opacity: .35; cursor: not-allowed; }
+
+  /* ---- Ledger ---- */
+  .ledger-head{
+    display:flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: 44px 0 14px;
+  }
+  .ledger-head h2{
+    font-family: 'Source Serif 4', serif;
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0;
+  }
+  .ledger-head .total{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .ledger{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .subject-row{
+    display:flex;
+    align-items:center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px dashed var(--line);
+    gap: 12px;
+  }
+  .subject-row:last-child{ border-bottom: none; }
+  .subject-name{
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .subject-meta{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .subject-time{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 15px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .row-actions{
+    display:flex;
+    gap: 4px;
+  }
+  .icon-btn{
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px 6px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+  .icon-btn:hover{ color: var(--danger); background: rgba(193,89,79,0.1); }
+
+  .empty-state{
+    padding: 28px 18px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .add-subject{
+    display:flex;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .add-subject input{
+    flex:1;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 10px;
+    padding: 11px 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+  }
+  .add-subject input:focus{ outline: none; border-color: var(--accent-dim); }
+
+  /* ---- Modal ---- */
+  .modal-overlay{
+    position: fixed;
+    inset: 0;
+    background: rgba(8,9,13,0.7);
+    backdrop-filter: blur(3px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: 20px;
+    z-index: 50;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease;
+  }
+  .modal-overlay.open{ opacity: 1; pointer-events: auto; }
+  .modal{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 420px;
+    padding: 26px 24px;
+    transform: translateY(8px);
+    transition: transform .18s ease;
+  }
+  .modal-overlay.open .modal{ transform: translateY(0); }
+  .modal h3{
+    font-family:'Source Serif 4', serif;
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+  .modal .modal-sub{
+    color: var(--text-muted);
+    font-size: 13.5px;
+    margin: 0 0 18px;
+  }
+  .modal .duration-badge{
+    display:inline-block;
+    font-family:'IBM Plex Mono', monospace;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-bottom: 18px;
+  }
+  .modal-list{
+    max-height: 260px;
+    overflow-y: auto;
+    display:flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .modal-list button{
+    text-align:left;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-weight: 500;
+    display:flex;
+    justify-content: space-between;
+    align-items:center;
+  }
+  .modal-list button:hover{ border-color: var(--accent-dim); background: var(--accent-soft); }
+  .modal-list button .arrow{ color: var(--text-muted); }
+  .modal-actions{
+    display:flex;
+    justify-content: space-between;
+    align-items:center;
+  }
+  .link-btn{
+    background:none;
+    border:none;
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 6px 0;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .link-btn:hover{ color: var(--danger); }
+
+  .toast{
+    position: fixed;
+    bottom: 26px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    opacity: 0;
+    transition: all .25s ease;
+    pointer-events: none;
+    z-index: 60;
+  }
+  .toast.show{ opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 480px){
+    .clock{ font-size: 56px; }
+    .timer-card{ padding: 32px 18px 26px; }
+    button{ padding: 11px 16px; font-size: 13.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <p class="eyebrow">registro de foco</p>
+  <h1>Estudo Líquido</h1>
+  <p class="sub">Cronometre suas sessões e guarde as horas líquidas em cada disciplina.</p>
+
+  <div class="timer-card">
+    <div class="status-pill" id="statusPill">
+      <span class="status-dot"></span>
+      <span id="statusText">Parado</span>
+    </div>
+    <div class="clock" id="clock">00:00<span class="sec">:00</span></div>
+    <div class="wick" id="wick"></div>
+    <div class="controls">
+      <button class="btn-primary" id="btnStart">Iniciar</button>
+      <button class="btn-ghost" id="btnPause" disabled>Pausar</button>
+      <button class="btn-stop" id="btnStop" disabled>Encerrar</button>
+    </div>
+  </div>
+
+  <div class="ledger-head">
+    <h2>Disciplinas</h2>
+    <span class="total" id="grandTotal">total: 0h 00min</span>
+  </div>
+  <div class="ledger" id="ledger"></div>
+
+  <div class="add-subject">
+    <input type="text" id="newSubjectInput" placeholder="Nova disciplina, ex: Química">
+    <button class="btn-ghost" id="btnAddSubject">Adicionar</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3>Onde guardar essas horas?</h3>
+    <p class="modal-sub">Escolha a disciplina que recebeu essa sessão de estudo.</p>
+    <div class="duration-badge" id="modalDuration">00:00:00</div>
+    <div class="modal-list" id="modalList"></div>
+    <div class="modal-actions">
+      <button class="link-btn" id="btnDiscard">Descartar sessão</button>
+      <button class="btn-ghost" id="btnCancelModal">Voltar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const STORAGE_KEY = 'estudo-liquido-v1';
+  const SESSION_KEY = 'estudo-liquido-session-v1';
+
+  function loadState(){
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      try{ return JSON.parse(raw); }catch(e){}
+    }
+    return {
+      subjects: [
+        { id: cryptoId(), name: 'Matemática', totalSeconds: 0 },
+        { id: cryptoId(), name: 'Português', totalSeconds: 0 },
+        { id: cryptoId(), name: 'Inglês', totalSeconds: 0 },
+      ]
+    };
+  }
+  function cryptoId(){ return Math.random().toString(36).slice(2,10); }
+  function saveState(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+  let state = loadState();
+
+  // ---- Timer engine ----
+  // session = { status: 'idle'|'running'|'paused', startEpoch, elapsedBefore }
+  let session = loadSession();
+  let tickHandle = null;
+
+  function loadSession(){
+    const raw = localStorage.getItem(SESSION_KEY);
+    if(raw){
+      try{ return JSON.parse(raw); }catch(e){}
+    }
+    return { status: 'idle', startEpoch: null, elapsedBefore: 0 };
+  }
+  function saveSession(){ localStorage.setItem(SESSION_KEY, JSON.stringify(session)); }
+
+  function currentElapsedSeconds(){
+    if(session.status === 'running'){
+      return session.elapsedBefore + Math.floor((Date.now() - session.startEpoch)/1000);
+    }
+    return session.elapsedBefore;
+  }
+
+  function fmtClock(totalSeconds){
+    const h = Math.floor(totalSeconds/3600);
+    const m = Math.floor((totalSeconds%3600)/60);
+    const s = totalSeconds%60;
+    const hh = String(h).padStart(2,'0');
+    const mm = String(m).padStart(2,'0');
+    const ss = String(s).padStart(2,'0');
+    return { main: `${hh}:${mm}`, sec: ss };
+  }
+
+  function fmtHuman(totalSeconds){
+    const h = Math.floor(totalSeconds/3600);
+    const m = Math.floor((totalSeconds%3600)/60);
+    if(h === 0) return `${m}min`;
+    return `${h}h ${String(m).padStart(2,'0')}min`;
+  }
+
+  const clockEl = document.getElementById('clock');
+  const wickEl = document.getElementById('wick');
+  const statusPill = document.getElementById('statusPill');
+  const statusText = document.getElementById('statusText');
+  const btnStart = document.getElementById('btnStart');
+  const btnPause = document.getElementById('btnPause');
+  const btnStop = document.getElementById('btnStop');
+
+  function renderClock(){
+    const secs = currentElapsedSeconds();
+    const { main, sec } = fmtClock(secs);
+    clockEl.innerHTML = `${main}<span class="sec">:${sec}</span>`;
+  }
+
+  function renderControls(){
+    statusPill.classList.remove('running','paused');
+    wickEl.classList.remove('running');
+    if(session.status === 'running'){
+      statusPill.classList.add('running');
+      statusText.textContent = 'Em andamento';
+      wickEl.classList.add('running');
+      btnStart.disabled = true;
+      btnPause.disabled = false;
+      btnPause.textContent = 'Pausar';
+      btnStop.disabled = false;
+    } else if(session.status === 'paused'){
+      statusPill.classList.add('paused');
+      statusText.textContent = 'Pausado';
+      btnStart.disabled = true;
+      btnPause.disabled = false;
+      btnPause.textContent = 'Retomar';
+      btnStop.disabled = false;
+    } else {
+      statusText.textContent = 'Parado';
+      btnStart.disabled = false;
+      btnPause.disabled = true;
+      btnPause.textContent = 'Pausar';
+      btnStop.disabled = true;
+    }
+  }
+
+  function startTicking(){
+    stopTicking();
+    tickHandle = setInterval(renderClock, 1000);
+  }
+  function stopTicking(){
+    if(tickHandle){ clearInterval(tickHandle); tickHandle = null; }
+  }
+
+  btnStart.addEventListener('click', () => {
+    session.status = 'running';
+    session.startEpoch = Date.now();
+    saveSession();
+    renderControls();
+    renderClock();
+    startTicking();
+  });
+
+  btnPause.addEventListener('click', () => {
+    if(session.status === 'running'){
+      session.elapsedBefore = currentElapsedSeconds();
+      session.status = 'paused';
+      session.startEpoch = null;
+      stopTicking();
+    } else if(session.status === 'paused'){
+      session.status = 'running';
+      session.startEpoch = Date.now();
+      startTicking();
+    }
+    saveSession();
+    renderControls();
+    renderClock();
+  });
+
+  btnStop.addEventListener('click', () => {
+    if(session.status === 'running'){
+      session.elapsedBefore = currentElapsedSeconds();
+    }
+    stopTicking();
+    openModal(session.elapsedBefore);
+  });
+
+  // ---- Modal ----
+  const modalOverlay = document.getElementById('modalOverlay');
+  const modalList = document.getElementById('modalList');
+  const modalDuration = document.getElementById('modalDuration');
+  const btnCancelModal = document.getElementById('btnCancelModal');
+  const btnDiscard = document.getElementById('btnDiscard');
+  const toastEl = document.getElementById('toast');
+
+  let pendingSeconds = 0;
+
+  function openModal(seconds){
+    pendingSeconds = seconds;
+    const {main, sec} = fmtClock(seconds);
+    modalDuration.textContent = `${main}:${sec}`;
+    renderModalList();
+    modalOverlay.classList.add('open');
+  }
+  function closeModal(){
+    modalOverlay.classList.remove('open');
+  }
+
+  function renderModalList(){
+    modalList.innerHTML = '';
+    if(state.subjects.length === 0){
+      modalList.innerHTML = `<div class="empty-state">Nenhuma disciplina cadastrada ainda. Adicione uma abaixo da lista principal.</div>`;
+      return;
+    }
+    state.subjects.forEach(sub => {
+      const b = document.createElement('button');
+      b.innerHTML = `<span>${escapeHtml(sub.name)}</span><span class="arrow">＋ salvar aqui</span>`;
+      b.addEventListener('click', () => {
+        sub.totalSeconds += pendingSeconds;
+        saveState();
+        session = { status:'idle', startEpoch:null, elapsedBefore:0 };
+        saveSession();
+        renderControls();
+        renderClock();
+        renderLedger();
+        closeModal();
+        showToast(`${fmtHuman(pendingSeconds)} guardados em ${sub.name}`);
+      });
+      modalList.appendChild(b);
+    });
+  }
+
+  btnCancelModal.addEventListener('click', () => {
+    closeModal();
+    // resume paused state so user can keep timing or stop again later
+    if(session.elapsedBefore > 0 || session.status !== 'idle'){
+      session.status = 'paused';
+      saveSession();
+      renderControls();
+      renderClock();
+    }
+  });
+
+  btnDiscard.addEventListener('click', () => {
+    session = { status:'idle', startEpoch:null, elapsedBefore:0 };
+    saveSession();
+    renderControls();
+    renderClock();
+    closeModal();
+    showToast('Sessão descartada');
+  });
+
+  function showToast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(() => toastEl.classList.remove('show'), 2200);
+  }
+
+  function escapeHtml(str){
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  // ---- Ledger ----
+  const ledgerEl = document.getElementById('ledger');
+  const grandTotalEl = document.getElementById('grandTotal');
+
+  function renderLedger(){
+    ledgerEl.innerHTML = '';
+    if(state.subjects.length === 0){
+      ledgerEl.innerHTML = `<div class="empty-state">Nenhuma disciplina cadastrada. Adicione a primeira abaixo.</div>`;
+    } else {
+      const sorted = [...state.subjects].sort((a,b) => b.totalSeconds - a.totalSeconds);
+      sorted.forEach(sub => {
+        const row = document.createElement('div');
+        row.className = 'subject-row';
+        row.innerHTML = `
+          <div>
+            <div class="subject-name">${escapeHtml(sub.name)}</div>
+            <div class="subject-meta">horas líquidas acumuladas</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="subject-time">${fmtHuman(sub.totalSeconds)}</div>
+            <div class="row-actions">
+              <button class="icon-btn" title="Remover disciplina" data-id="${sub.id}">remover</button>
+            </div>
+          </div>
+        `;
+        row.querySelector('.icon-btn').addEventListener('click', (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          if(confirm('Remover esta disciplina? As horas guardadas nela serão perdidas.')){
+            state.subjects = state.subjects.filter(s => s.id !== id);
+            saveState();
+            renderLedger();
+          }
+        });
+        ledgerEl.appendChild(row);
+      });
+    }
+    const total = state.subjects.reduce((acc,s) => acc + s.totalSeconds, 0);
+    grandTotalEl.textContent = `total: ${fmtHuman(total)}`;
+  }
+
+  document.getElementById('btnAddSubject').addEventListener('click', addSubject);
+  document.getElementById('newSubjectInput').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter') addSubject();
+  });
+  function addSubject(){
+    const input = document.getElementById('newSubjectInput');
+    const name = input.value.trim();
+    if(!name) return;
+    state.subjects.push({ id: cryptoId(), name, totalSeconds: 0 });
+    saveState();
+    input.value = '';
+    renderLedger();
+  }
+
+  // ---- Init ----
+  renderControls();
+  renderClock();
+  renderLedger();
+  if(session.status === 'running') startTicking();
+</script>
+</body>
+</html>
