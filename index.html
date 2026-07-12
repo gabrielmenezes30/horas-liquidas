@@ -244,6 +244,17 @@
   }
   .add-subject input:focus{ outline: none; border-color: var(--accent-dim); }
 
+  .backup-row{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap: 10px;
+    margin-top: 22px;
+  }
+  .backup-row .link-btn{ color: var(--text-muted); font-size: 12.5px; }
+  .backup-row .link-btn:hover{ color: var(--accent); }
+  .backup-sep{ color: var(--line); font-size: 12px; }
+
   /* ---- Modal ---- */
   .modal-overlay{
     position: fixed;
@@ -381,6 +392,13 @@
   <div class="add-subject">
     <input type="text" id="newSubjectInput" placeholder="Nova disciplina, ex: Química">
     <button class="btn-ghost" id="btnAddSubject">Adicionar</button>
+  </div>
+
+  <div class="backup-row">
+    <button class="link-btn" id="btnExport">Exportar backup (.json)</button>
+    <span class="backup-sep">·</span>
+    <button class="link-btn" id="btnImportTrigger">Importar backup</button>
+    <input type="file" id="fileImport" accept="application/json" style="display:none">
   </div>
 </div>
 
@@ -671,6 +689,70 @@
     input.value = '';
     renderLedger();
   }
+
+  // ---- Backup: exportar / importar ----
+  document.getElementById('btnExport').addEventListener('click', () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      subjects: state.subjects
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `estudo-liquido-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Backup baixado');
+  });
+
+  const fileImportEl = document.getElementById('fileImport');
+  document.getElementById('btnImportTrigger').addEventListener('click', () => {
+    fileImportEl.value = '';
+    fileImportEl.click();
+  });
+  fileImportEl.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try{
+        const parsed = JSON.parse(ev.target.result);
+        if(!parsed || !Array.isArray(parsed.subjects)) throw new Error('formato inválido');
+        const validSubjects = parsed.subjects
+          .filter(s => s && typeof s.name === 'string')
+          .map(s => ({
+            id: s.id || cryptoId(),
+            name: s.name,
+            totalSeconds: Number(s.totalSeconds) || 0
+          }));
+        const merge = confirm(
+          'Deseja MESCLAR este backup com os dados atuais?\n\nOK = mesclar (soma disciplinas com o mesmo nome, adiciona as novas)\nCancelar = SUBSTITUIR tudo pelo conteúdo do backup'
+        );
+        if(merge){
+          validSubjects.forEach(imported => {
+            const existing = state.subjects.find(s => s.name.toLowerCase() === imported.name.toLowerCase());
+            if(existing){
+              existing.totalSeconds += imported.totalSeconds;
+            } else {
+              state.subjects.push(imported);
+            }
+          });
+        } else {
+          state.subjects = validSubjects;
+        }
+        saveState();
+        renderLedger();
+        showToast('Backup importado com sucesso');
+      } catch(err){
+        alert('Não foi possível ler este arquivo. Confirme se é um backup válido do Estudo Líquido.');
+      }
+    };
+    reader.readAsText(file);
+  });
 
   // ---- Init ----
   renderControls();
